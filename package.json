@@ -1,0 +1,31 @@
+{
+  "name": "resume-builder",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "@firebasegen/default-connector": "file:dataconnect-generated/js/default-connector",
+    "@mdi/font": "^7.1.96",
+    "firebase": "^9.17.1",
+    "html2pdf.js": "^0.10.3",
+    "jspdf": "^2.5.1",
+    "katex": "^0.16.4",
+    "latex.js": "^0.12.6",
+    "marked": "^4.2.12",
+    "pinia": "^2.0.30",
+    "vue": "^3.2.45",
+    "vue-pdf": "^4.3.0",
+    "vue-router": "^4.1.6",
+    "vuetify": "^3.1.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.0.0",
+    "@vue/cli-plugin-babel": "~5.0.8",
+    "@vue/cli-plugin-router": "~5.0.8",
+    "@vue/cli-service": "~5.0.8"
+  }
+}
