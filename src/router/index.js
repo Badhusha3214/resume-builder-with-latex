@@ -59,8 +59,18 @@ const routes = [
     name: 'LaTeXPreview',
     component: () => import('@/views/resume/LaTeXPreview.vue'),
     meta: {
-      requiresAuth: false  // Change this to false to make it always accessible
+      requiresAuth: false  
     }
+  },
+  {
+    path: '/super-admin/login',
+    name: 'SuperAdminLogin',
+    component: () => import('@/views/superadmin/SuperAdminLogin.vue')
+  },
+  {
+    path: '/super-admin/dashboard',
+    name: 'SuperAdminDashboard',
+    component: () => import('@/views/superadmin/SuperAdminDashboard.vue')
   }
 ];
 

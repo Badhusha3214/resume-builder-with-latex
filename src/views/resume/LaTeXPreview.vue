@@ -259,6 +259,11 @@ const updatePreview = debounce(() => {
   // Use a microtask to defer without causing layout thrashing
   Promise.resolve().then(() => {
     try {
+      // Validate LaTeX code before processing
+      if (!latexCode.value.includes('\\begin{document}') || !latexCode.value.includes('\\end{document}')) {
+        console.warn('LaTeX code is missing document structure');
+      }
+      
       // Process the LaTeX code to generate HTML preview
       const generated = processRawLatex(latexCode.value);
       
@@ -274,7 +279,10 @@ const updatePreview = debounce(() => {
       });
     } catch (error) {
       console.warn('Error updating LaTeX preview:', error);
-      previewHtml.value = `<div class="error-message">Error generating preview: ${error.message}</div>`;
+      previewHtml.value = `<div class="error-message">
+        <p>Error generating preview: ${error.message}</p>
+        <p>Check your LaTeX code for syntax errors.</p>
+      </div>`;
       loading.value = false;
       isRendering = false;
     }
@@ -499,23 +507,87 @@ const saveAsResume = () => {
 const saveResumeFromLatex = async () => {
   saving.value = true;
   try {
-    // Create a new resume object
+    // Check if user is authenticated
+    if (!authStore.isAuthenticated) {
+      // If not authenticated, show specific error and offer to login
+      alert('You need to be logged in to save a resume.');
+      router.push('/login?message=Please log in to save your resume');
+      return;
+    }
+
+    // Validate required fields
+    if (!newResume.value.title) {
+      throw new Error('Resume title is required');
+    }
+    if (!newResume.value.personal.firstName || !newResume.value.personal.lastName) {
+      throw new Error('First name and last name are required');
+    }
+    
+    // Ensure essential structure - create a fully structured resume object
     const resumeData = {
-      ...newResume.value,
+      title: newResume.value.title,
+      format: 'LaTeX',
+      template: newResume.value.template || 'Modern',
+      personal: {
+        firstName: newResume.value.personal.firstName,
+        lastName: newResume.value.personal.lastName,
+        title: newResume.value.personal.title || '',
+        email: newResume.value.personal.email || '',
+        phone: newResume.value.personal.phone || '',
+        website: newResume.value.personal.website || '',
+        location: newResume.value.personal.location || '',
+        summary: newResume.value.personal.summary || ''
+      },
+      // Add these required sections to avoid structure errors
+      education: [
+        {
+          institution: '',
+          degree: '',
+          startDate: '',
+          endDate: '',
+          current: false,
+          location: '',
+          description: ''
+        }
+      ],
+      experience: [
+        {
+          company: '',
+          position: '',
+          startDate: '',
+          endDate: '',
+          current: false,
+          location: '',
+          description: ''
+        }
+      ],
+      skills: {
+        'Technical': []
+      },
+      projects: [],
       latexSource: latexCode.value
     };
     
-    // Save to database
-    const result = await resumeStore.createResume(resumeData);
+    // Log data being saved for debugging
+    console.log('Saving resume with data:', JSON.stringify(resumeData));
     
-    // Show success message
-    alert('Resume created successfully!');
-    
-    // Close dialog
-    saveDialog.value = false;
-    
-    // Redirect to dashboard
-    router.push('/dashboard');
+    // Save to database with explicit try/catch for more detailed errors
+    try {
+      const result = await resumeStore.createResume(resumeData);
+      console.log('Resume saved successfully:', result);
+      
+      // Show success message
+      alert('Resume created successfully!');
+      
+      // Close dialog
+      saveDialog.value = false;
+      
+      // Redirect to dashboard
+      router.push('/dashboard');
+    } catch (dbError) {
+      console.error('Database error saving resume:', dbError);
+      throw new Error(`Database error: ${dbError.message}`);
+    }
   } catch (error) {
     console.error('Error saving resume:', error);
     alert('Error saving resume: ' + error.message);
@@ -579,11 +651,53 @@ const applyTemplateWithName = (templateName) => {
 }
 
 :deep(.error-message) {
-  color: red;
-  padding: 1rem;
-  border: 1px solid red;
+  color: #721c24;
+  padding: 0.75rem;
+  border: 1px solid #f5c6cb;
   border-radius: 4px;
-  background-color: #ffeeee;
+  background-color: #f8d7da;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+:deep(.warning-message) {
+  color: #856404;
+  padding: 0.75rem;
+  border: 1px solid #ffeeba;
+  border-radius: 4px;
+  background-color: #fff3cd;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+:deep(.info-message) {
+  color: #0c5460;
+  padding: 0.75rem;
+  border: 1px solid #bee5eb;
+  border-radius: 4px;
+  background-color: #d1ecf1;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+:deep(.raw-content) {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 4px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+:deep(pre) {
+  background-color: #f6f8fa;
+  padding: 0.5rem;
+  border-radius: 3px;
+  overflow-x: auto;
+  font-family: monospace;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
 }
 
 /* Override tab-switching styles to fix ResizeObserver issues */

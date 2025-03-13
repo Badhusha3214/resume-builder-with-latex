@@ -646,7 +646,8 @@
               icon="mdi-download"
               variant="text"
               @click="downloadPdf"
-              :disabled="!valid || !resumePreview"
+              :disabled="!valid || !resumePreview || pdfGenerating"
+              :loading="pdfGenerating"
             ></v-btn>
           </v-card-title>
           <v-card-text class="preview-container">
@@ -663,7 +664,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useResumeStore } from '@/stores/resumes';
 import { jsPDF } from 'jspdf';
@@ -764,27 +765,84 @@ const skillCategoryDialog = ref(false);
 const newSkillCategory = ref('');
 
 // Preview
-const resumePreview = computed(() => {
+const resumePreview = ref(null); 
+const latexSourceSync = ref(null);
+
+// Update preview function to handle the Promise
+const updatePreview = async () => {
   if (!resume.personal.firstName && !resume.personal.lastName) {
-    return null;
+    resumePreview.value = null;
+    return;
   }
 
-  // Only process LaTeX formats
-  if (editorMode.value === 'form') {
-    // Generate LaTeX preview from resume data
-    return generateLatexPreview(resume);
-  } else {
-    // For LaTeX edit mode in manual mode
-    return latexPreview.value;
+  try {
+    // Only process LaTeX formats
+    if (editorMode.value === 'form') {
+      // Show loading state
+      resumePreview.value = '<div class="loading-preview">Generating preview...</div>';
+      
+      // Generate LaTeX preview from resume data - await the Promise
+      const previewContent = await generateLatexPreview(resume);
+      resumePreview.value = previewContent;
+      
+      // Also update the latexSource for switching to LaTeX mode
+      if (!latexSource.value) {
+        latexSourceSync.value = await generateLatexDocument(resume, resume.template);
+      }
+    } else {
+      // For LaTeX edit mode
+      resumePreview.value = latexPreview.value;
+    }
+  } catch (error) {
+    console.error('Error updating preview:', error);
+    resumePreview.value = `<div class="error-message">Error generating preview: ${error.message}</div>`;
   }
+};
+
+// Update the watcher to observe ALL sections of the resume
+watch(
+  () => ({
+    template: resume.template,
+    personal: resume.personal,
+    education: resume.education,
+    experience: resume.experience,
+    skills: resume.skills,
+    projects: resume.projects,
+    social: resume.social,
+    certifications: resume.certifications,
+    languages: resume.languages
+  }),
+  async () => {
+    console.log("Resume data changed, updating preview...");
+    updatePreview();
+  },
+  { deep: true }
+);
+
+// Add specific watchers for sections that might need more immediate updates
+watch(() => resume.education, () => {
+  console.log("Education updated, refreshing preview");
+  updatePreview();
+}, { deep: true });
+
+watch(() => resume.experience, () => {
+  console.log("Experience updated, refreshing preview");
+  updatePreview();
+}, { deep: true });
+
+watch(() => resume.skills, () => {
+  console.log("Skills updated, refreshing preview");
+  updatePreview();
+}, { deep: true });
+
+onMounted(() => {
+  updatePreview();
 });
-
 // Add a watcher to update the preview when the template changes
 watch(() => resume.template, (newTemplate) => {
   // Force preview refresh when template changes
   console.log(`Template changed to: ${newTemplate}`);
 });
-
 // Education functions
 function addEducation() {
   resume.education.push({
@@ -797,14 +855,12 @@ function addEducation() {
     description: ''
   });
 }
-
 function removeEducation(index) {
   resume.education.splice(index, 1);
   if (resume.education.length === 0) {
     addEducation();
   }
 }
-
 // Experience functions
 function addExperience() {
   resume.experience.push({
@@ -817,14 +873,12 @@ function addExperience() {
     description: ''
   });
 }
-
 function removeExperience(index) {
   resume.experience.splice(index, 1);
   if (resume.experience.length === 0) {
     addExperience();
   }
 }
-
 // Projects functions
 function addProject() {
   resume.projects.push({
@@ -834,37 +888,29 @@ function addProject() {
     description: ''
   });
 }
-
 function removeProject(index) {
   resume.projects.splice(index, 1);
   if (resume.projects.length === 0) {
     addProject();
   }
 }
-
 // Skills functions
 function addSkill() {
   if (!newSkill.value.trim()) return;
-  
   if (!resume.skills[selectedSkillCategory.value]) {
     resume.skills[selectedSkillCategory.value] = [];
   }
-  
   if (!resume.skills[selectedSkillCategory.value].includes(newSkill.value)) {
     resume.skills[selectedSkillCategory.value].push(newSkill.value);
   }
-  
   newSkill.value = '';
 }
-
 function removeSkill(index) {
   resume.skills[selectedSkillCategory.value].splice(index, 1);
 }
-
 function addSkillCategory() {
   skillCategoryDialog.value = true;
 }
-
 function saveSkillCategory() {
   if (newSkillCategory.value.trim() && !resume.skills[newSkillCategory.value]) {
     resume.skills[newSkillCategory.value] = [];
@@ -873,36 +919,28 @@ function saveSkillCategory() {
   newSkillCategory.value = '';
   skillCategoryDialog.value = false;
 }
-
 // Additional information functions
 function addSocial() {
   resume.social.push({ platform: '', url: '' });
 }
-
 function removeSocial(index) {
   resume.social.splice(index, 1);
 }
-
 function addCertification() {
   resume.certifications.push({ name: '', issuer: '', date: '' });
 }
-
 function removeCertification(index) {
   resume.certifications.splice(index, 1);
 }
-
 function addLanguage() {
   resume.languages.push({ language: '', proficiency: 'Intermediate' });
 }
-
 function removeLanguage(index) {
   resume.languages.splice(index, 1);
 }
-
 // Save and export functions
 async function saveResume() {
   if (!valid.value) return;
-  
   saving.value = true;
   try {
     const result = await resumeStore.createResume(resume);
@@ -914,7 +952,6 @@ async function saveResume() {
     saving.value = false;
   }
 }
-
 async function saveDraft() {
   saving.value = true;
   try {
@@ -929,19 +966,37 @@ async function saveDraft() {
     saving.value = false;
   }
 }
-
 function downloadPdf() {
   try {
+    pdfGenerating.value = true;
+    
     if (editorMode.value === 'latex' && latexSource.value) {
       // If in LaTeX edit mode, use the LaTeX source directly
-      downloadResumePdf(latexSource.value, true);
+      downloadResumePdf(latexSource.value, true)
+        .then(() => {
+          pdfGenerating.value = false;
+        })
+        .catch(error => {
+          console.error('Error downloading PDF:', error);
+          alert('Error generating PDF: ' + error.message);
+          pdfGenerating.value = false;
+        });
     } else {
       // Otherwise use the resume object
-      downloadResumePdf(resume);
+      downloadResumePdf(resume)
+        .then(() => {
+          pdfGenerating.value = false;
+        })
+        .catch(error => {
+          console.error('Error downloading PDF:', error);
+          alert('Error generating PDF: ' + error.message);
+          pdfGenerating.value = false;
+        });
     }
   } catch (error) {
-    console.error('Error downloading PDF:', error);
-    alert('Error generating PDF. Please try again.');
+    console.error('Error initiating PDF download:', error);
+    alert('Error preparing PDF: ' + error.message);
+    pdfGenerating.value = false;
   }
 }
 
@@ -949,6 +1004,7 @@ function downloadPdf() {
 const editorMode = ref('form');
 const latexSource = ref('');
 const latexPreview = ref('');
+const pdfGenerating = ref(false); // Add state for PDF generation
 
 // Watch for format change to update LaTeX source
 watch(() => resume.format, (newFormat) => {
@@ -959,21 +1015,19 @@ watch(() => resume.format, (newFormat) => {
   }
 });
 
-// Watch for template change to update LaTeX source when in LaTeX mode
-watch(() => resume.template, (newTemplate) => {
-  if (resume.format === 'LaTeX' && editorMode.value === 'latex') {
-    applyLatexTemplate(newTemplate);
-  }
-});
-
 // Generate the initial LaTeX source code from resume data
-function generateInitialLatexSource() {
+async function generateInitialLatexSource() {
   try {
-    const template = latexTemplates[resume.template] || latexTemplates['Modern'];
-    latexSource.value = generateLatexDocument(resume, resume.template);
+    // Update UI to show loading state
+    latexSource.value = 'Generating LaTeX source...';
+    // Use await to get the actual LaTeX content
+    const generatedContent = await generateLatexDocument(resume, resume.template);
+    latexSource.value = generatedContent;
+    latexSourceSync.value = generatedContent;
     updateLatexPreview();
   } catch (error) {
     console.error('Error generating LaTeX source:', error);
+    latexSource.value = '% Error generating LaTeX source. Please try again.';
   }
 }
 
@@ -993,10 +1047,10 @@ const updateLatexPreview = () => {
 };
 
 // Apply a specific LaTeX template
-function applyLatexTemplate(templateName) {
+async function applyLatexTemplate(templateName) {
   try {
+    // Use the template service to get the template content
     const template = latexTemplates[templateName] || latexTemplates['Modern'];
-
     // Extract personal info to maintain it
     const personalInfo = {
       firstName: resume.personal.firstName || 'Your',
@@ -1007,17 +1061,13 @@ function applyLatexTemplate(templateName) {
       location: resume.personal.location || '',
       website: resume.personal.website || ''
     };
-
     // Generate new LaTeX with the selected template but keep personal info
     latexSource.value = `${template}
-    
 \\begin{document}
-
 \\begin{center}
   {\\huge ${personalInfo.firstName} ${personalInfo.lastName}}\\vspace{0.5em}
   ${personalInfo.title ? `{\\large ${personalInfo.title}}` : ''}
 \\end{center}
-
 % Contact Information
 \\begin{center}
   ${personalInfo.email ? `\\href{mailto:${personalInfo.email}}{${personalInfo.email}}` : ''}
@@ -1025,24 +1075,18 @@ function applyLatexTemplate(templateName) {
   ${personalInfo.location ? ` $\\cdot$ ${personalInfo.location}` : ''}
   ${personalInfo.website ? ` $\\cdot$ \\href{${personalInfo.website}}{${personalInfo.website}}` : ''}
 \\end{center}
-
 \\section{Summary}
 ${resume.personal.summary || 'Your professional summary goes here.'}
-
 % Add more sections for your resume content
 \\section{Experience}
 \\entry{Company Name}{Date Range}{Position Title}{Location}
 % Add your work experience details here
-
 \\section{Education}
 \\entry{University Name}{Date Range}{Degree}{Location}
 % Add your education details here
-
 \\section{Skills}
 % List your skills here
-
 \\end{document}`;
-
     updateLatexPreview();
   } catch (error) {
     console.error('Error applying template:', error);
@@ -1055,7 +1099,6 @@ function updateResumeFromLatex() {
     // This function would attempt to parse the LaTeX source and update the resume object
     // This is a complex operation and would require LaTeX parsing capabilities
     // For now, we'll implement a basic version that extracts a few key pieces of info
-
     // Extract name
     const nameMatch = latexSource.value.match(/\\begin{center}\s*{\\huge\s*([^}]+)}/);
     if (nameMatch) {
@@ -1065,25 +1108,21 @@ function updateResumeFromLatex() {
         resume.personal.lastName = nameParts.slice(1).join(' ');
       }
     }
-
     // Extract title
     const titleMatch = latexSource.value.match(/{\\large\s*([^}]+)}/);
     if (titleMatch) {
       resume.personal.title = titleMatch[1].trim();
     }
-
     // Extract email
     const emailMatch = latexSource.value.match(/\\href{mailto:([^}]*)}{[^}]*}/);
     if (emailMatch) {
       resume.personal.email = emailMatch[1];
     }
-
     // Extract summary
     const summaryMatch = latexSource.value.match(/\\section{Summary}\s*([^\n]*(?:\n(?!\\section)[^\n]*)*)/);
     if (summaryMatch) {
       resume.personal.summary = summaryMatch[1].trim();
     }
-
     alert('Resume data has been updated from LaTeX source. Some complex elements may not have been captured.');
   } catch (error) {
     console.error('Error updating resume data from LaTeX:', error);
@@ -1092,13 +1131,24 @@ function updateResumeFromLatex() {
 }
 
 // Add watcher for editor mode to ensure preview is updated
-watch(() => editorMode.value, (newMode) => {
+watch(() => editorMode.value, async (newMode) => {
   if (newMode === 'latex' && resume.format === 'LaTeX') {
     // When switching to LaTeX mode, update the LaTeX source
-    if (!latexSource.value) {
-      generateInitialLatexSource();
+    if (!latexSource.value || latexSource.value === 'Generating LaTeX source...') {
+      if (latexSourceSync.value) {
+        // Use already generated content if available
+        latexSource.value = latexSourceSync.value;
+        updateLatexPreview();
+      } else {
+        // Otherwise generate it
+        await generateInitialLatexSource();
+      }
+    } else {
+      updateLatexPreview();
     }
-    updateLatexPreview();
+  } else if (newMode === 'form') {
+    // When switching back to form mode, update the form preview
+    updatePreview();
   }
 });
 
@@ -1109,7 +1159,6 @@ watch(() => resume.format, (newFormat) => {
   }
 });
 </script>
-
 <style scoped>
 .preview-container {
   height: 100%;
@@ -1120,22 +1169,12 @@ watch(() => resume.format, (newFormat) => {
   border-radius: 4px;
   font-size: 0.9rem;
   background-color: white;
+  contain: content; /* Improves performance and reduces layout thrashing */
+  min-height: 400px; /* Provide a reasonable minimum height */
 }
 
 /* Add web fonts for different templates */
 @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;600;700&family=Montserrat:wght@300;400;500;600;700&display=swap');
-
-/* Template-specific preview adjustments */
-.preview-container {
-  height: 100%;
-  max-height: 800px;
-  overflow-y: auto;
-  padding: 1rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  background-color: white;
-}
 
 /* Add shadow effect on hover for template selection */
 .template-option {
@@ -1157,16 +1196,31 @@ watch(() => resume.format, (newFormat) => {
   font-family: 'Times New Roman', serif;
 }
 
+/* Enhanced LaTeX preview styling */
 :deep(.latex-complete-preview) {
   height: 100%;
   overflow: hidden;
+  max-height: 600px; /* Limit maximum height */
+  width: 100%;
 }
 
 :deep(.compiled-view) {
-  transform: scale(0.6);
-  transform-origin: top left;
-  height: 160%;
-  overflow: auto;
+  transform: scale(0.8);
+  transform-origin: top center;
+  height: auto;
+  overflow: visible;
+  max-width: 95%; /* Prevent overflow issues causing resize loops */
+  font-family: 'Latin Modern Roman', 'Computer Modern Roman', 'Times New Roman', serif !important;
+  padding: 1.5cm 1.2cm !important;
+  background-color: white !important;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1) !important;
+  margin: 0 auto;
+}
+
+:deep(.section-heading) {
+  color: #2c3e50 !important;
+  font-weight: bold !important;
+  border-bottom: 1px solid #ddd !important;
 }
 
 :deep(.tab-btn) {
@@ -1185,42 +1239,25 @@ watch(() => resume.format, (newFormat) => {
   background-color: white;
 }
 
-/* Add styles to prevent ResizeObserver loops */
-.preview-container {
-  contain: content; /* Improves performance and reduces layout thrashing */
-  min-height: 400px; /* Provide a reasonable minimum height */
-}
-
-:deep(.compiled-view) {
-  transform-origin: top left;
-  max-width: 100%; /* Prevent overflow issues causing resize loops */
-}
-
-:deep(.latex-complete-preview) {
-  overflow: hidden; /* Prevent scrollbar-induced resize loops */
-  max-height: 600px; /* Limit maximum height */
-}
-
-/* Add specificity to compiled view styles */
-:deep(.compiled-view) {
-  transform: scale(0.6);
-  transform-origin: top left;
-  overflow: auto;
-  font-family: 'Latin Modern Roman', 'Computer Modern Roman', 'Times New Roman', serif !important;
-  padding: 2.5cm 1.8cm !important;
-  background-color: white !important;
-  box-shadow: 0 0 10px rgba(0,0,0,0.1) !important;
-}
-
-/* Override any conflicting styles */
-:deep(.latex-complete-preview) {
-  height: 100% !important;
-  width: 100% !important;
-  overflow: hidden !important;
-}
-
 :deep(.preview-content) {
   overflow: auto !important;
   height: 100% !important;
+}
+
+/* Error and loading states */
+.error-message {
+  color: #f44336;
+  padding: 1rem;
+  border: 1px solid #f44336;
+  border-radius: 4px;
+  background-color: #ffebee;
+  margin: 1rem 0;
+}
+
+.loading-preview {
+  padding: 2rem;
+  text-align: center;
+  color: #666;
+  font-style: italic;
 }
 </style>

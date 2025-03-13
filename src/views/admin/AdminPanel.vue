@@ -186,6 +186,89 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- User Management Section -->
+    <v-container>
+      <v-row>
+        <v-col cols="12">
+          <h2 class="text-h5 mb-4">User Management</h2>
+          <v-alert
+            v-if="error"
+            type="error"
+            outlined
+            class="mb-4"
+          >
+            {{ error }}
+          </v-alert>
+          <v-progress-circular
+            v-if="loading"
+            size="40"
+            color="primary"
+            indeterminate
+            class="mb-4"
+          />
+          <div v-else>
+            <v-btn color="primary" class="mb-4" @click="openAddDialog">Add User</v-btn>
+            <v-table :items="users" :headers="headers">
+              <template #item.actions="{ item }">
+                <v-btn
+                  color="error"
+                  outlined
+                  @click="banUser(item.id)"
+                  :disabled="item.banned"
+                >
+                  Ban
+                </v-btn>
+                <v-btn
+                  color="primary"
+                  outlined
+                  @click="openEditDialog(item)"
+                  class="ml-2"
+                >
+                  Edit
+                </v-btn>
+              </template>
+            </v-table>
+          </div>
+        </v-col>
+      </v-row>
+    </v-container>
+
+    <!-- Add User Dialog -->
+    <v-dialog v-model="addDialog" max-width="500px">
+      <v-card>
+        <v-card-title>Add New User</v-card-title>
+        <v-card-text>
+          <v-form @submit.prevent="createUser">
+            <v-text-field v-model="newUser.email" label="Email" required />
+            <!-- Other fields as needed -->
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="addDialog = false">Cancel</v-btn>
+          <v-btn color="primary" @click="createUser">Save</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Edit User Dialog -->
+    <v-dialog v-model="editDialog" max-width="500px">
+      <v-card>
+        <v-card-title>Edit User</v-card-title>
+        <v-card-text>
+          <v-form @submit.prevent="updateUser">
+            <v-text-field v-model="selectedUser.email" label="Email" required />
+            <!-- Other fields as needed -->
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="editDialog = false">Cancel</v-btn>
+          <v-btn color="primary" @click="updateUser">Update</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -194,6 +277,8 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useResumeStore } from '@/stores/resumes';
 import { useAuthStore } from '@/stores/auth';
+import { db } from '@/firebase/config';
+import { collection, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
 
 const router = useRouter();
 const resumeStore = useResumeStore();
@@ -345,6 +430,76 @@ function formatDate(date) {
   const d = date instanceof Date ? date : new Date(date.seconds * 1000);
   return d.toLocaleDateString();
 }
+
+// User management
+const users = ref([]);
+const error = ref('');
+
+const fetchUsers = async () => {
+  try {
+    loading.value = true;
+    const snapshot = await getDocs(collection(db, 'users'));
+    users.value = snapshot.docs.map(docItem => ({
+      id: docItem.id,
+      ...docItem.data()
+    }));
+  } catch (err) {
+    error.value = 'Failed to fetch users.';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const banUser = async (userId) => {
+  try {
+    await updateDoc(doc(db, 'users', userId), { banned: true });
+    users.value = users.value.map(u =>
+      u.id === userId ? { ...u, banned: true } : u
+    );
+  } catch (err) {
+    error.value = 'Failed to ban user.';
+  }
+};
+
+const addDialog = ref(false);
+const editDialog = ref(false);
+const newUser = ref({ email: '' });
+const selectedUser = ref({});
+
+function openAddDialog() {
+  newUser.value = { email: '' };
+  addDialog.value = true;
+}
+
+async function createUser() {
+  try {
+    await addDoc(collection(db, 'users'), { ...newUser.value, banned: false });
+    addDialog.value = false;
+    fetchUsers(); // Re-fetch or update users list
+  } catch (err) {
+    error.value = 'Failed to create user.';
+  }
+}
+
+function openEditDialog(user) {
+  selectedUser.value = { ...user };
+  editDialog.value = true;
+}
+
+async function updateUser() {
+  try {
+    await updateDoc(doc(db, 'users', selectedUser.value.id), {
+      email: selectedUser.value.email
+      // ...other fields...
+    });
+    editDialog.value = false;
+    fetchUsers(); // Re-fetch or update users list
+  } catch (err) {
+    error.value = 'Failed to update user.';
+  }
+}
+
+onMounted(fetchUsers);
 </script>
 
 <style scoped>

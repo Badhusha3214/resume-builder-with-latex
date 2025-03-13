@@ -39,16 +39,37 @@ export function generateMarkdownPreview(resume) {
  * @param {Object} resume - Resume data object
  * @returns {String} HTML representation of the LaTeX document
  */
-export function generateLatexPreview(resume) {
+export async function generateLatexPreview(resume) {
   try {
-    // Generate the LaTeX code from resume data
-    const latexContent = generateLatexDocument(resume);
+    if (!resume) {
+      console.error('Invalid resume data provided to generateLatexPreview');
+      return '<div class="preview-error">Invalid resume data</div>';
+    }
     
-    // Process the LaTeX code to create a visual preview
-    return processRawLatex(latexContent);
+    console.log('Generating LaTeX preview with data:', {
+      firstName: resume.personal.firstName,
+      lastName: resume.personal.lastName,
+      format: resume.format,
+      template: resume.template
+    });
+    
+    // Generate the LaTeX document with the specified template
+    const latexContent = await generateLatexDocument(resume, resume.template);
+    
+    if (!latexContent) {
+      console.error('Empty LaTeX content generated');
+      return '<div class="preview-error">Failed to generate LaTeX content</div>';
+    }
+    
+    // Process the raw LaTeX to create the HTML preview
+    const { processRawLatex } = require('./latexCompiler');
+    const previewHtml = processRawLatex(latexContent);
+    
+    // Add additional wrapper for styling
+    return `<div class="latex-preview-container">${previewHtml}</div>`;
   } catch (error) {
     console.error('Error generating LaTeX preview:', error);
-    return '<div class="preview-error">Error generating resume preview</div>';
+    return `<div class="preview-error">Error generating resume preview: ${error.message}</div>`;
   }
 }
 
@@ -86,13 +107,27 @@ async function exportStandardPdf(resume, isSource) {
   if (isSource) {
     // If we're passed raw LaTeX code
     latexContent = resume;
-    // Try to extract name from LaTeX
+  } else {
+    // Generate LaTeX from resume object - NEED TO AWAIT THIS PROMISE
+    try {
+      latexContent = await generateLatexDocument(resume);
+      name = `${resume.personal.firstName}_${resume.personal.lastName}`;
+    } catch (error) {
+      console.error('Error generating LaTeX document:', error);
+      throw new Error('Failed to generate LaTeX content for PDF');
+    }
+  }
+
+  // Ensure latexContent is a string before using string methods
+  if (!latexContent || typeof latexContent !== 'string') {
+    console.error('Invalid LaTeX content:', latexContent);
+    throw new Error(`Cannot create PDF: expected string but got ${typeof latexContent}`);
+  }
+  
+  // Try to extract name from LaTeX if not already set
+  if (!name) {
     const nameMatch = latexContent.match(/{\\huge\s*([^}]+)}/);
     name = nameMatch ? nameMatch[1].trim() : 'Resume';
-  } else {
-    // Generate LaTeX from resume object
-    latexContent = generateLatexDocument(resume);
-    name = `${resume.personal.firstName}_${resume.personal.lastName}`;
   }
   
   // Set up PDF styles
